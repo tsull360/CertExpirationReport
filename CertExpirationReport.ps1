@@ -46,13 +46,14 @@
 Param
 (
     $ExpireWindow=30,
-    $Templates=("NativemodeWebServer","NativemodeWorkstation"),
+    $Templates=("ContosoWebServer","ContosoWorkstation"),
     $TempPath="C:\Working",
-    $MailRecipient="tim@nativemode.com",
-    $MailServer="mail.nativemode.com",
-    $MailSender="media@nativemode.com",
+    $MailRecipient="tim@Contoso.com",
+    $MailServer="mail.Contoso.com",
+    $MailSender="media@Contoso.com",
     $MailSubject="Expiring Cert Report",
-    $Email=$true
+    $Email=$true,
+    $EVLog=$true
 )
 
 
@@ -62,11 +63,11 @@ $Today = Get-Date
 #Construct future date (X days from now)
 $Before = $Today.AddDays($ExpireWindow)
 $Before = "$($Before.Month)/$($Before.Day)/$($Before.Year)"
-Write-Host "Before date: $Before"
+#Write-Output "Before date: $Before"
 
 #Construct Current Date
 $After = "$($Today.Month)/$($Today.Day)/$($Today.Year)"
-Write-Host "After date: $After"
+#Write-Output "After date: $After"
 
 #Gather certificate info.
 Foreach ($Item in $Templates)
@@ -75,11 +76,11 @@ Foreach ($Item in $Templates)
     #Get OID from template name
     $OID = Get-CATemplate | Select-Object Name,Oid | Where-Object {$_.Name -like "$Item"}
     $OID = $OID.Oid
-    Write-Host "OID for template $item is"$OID
+    #Write-Output "OID for template $item is"$OID
 
     #Create certutil restriction statement
     $Restrict = "NotAfter<=$Before,NotAfter>=$After,CertificateTemplate = $OID,Disposition=20"
-    Write-Host "Restrict string: $Restrict"
+    #Write-Output "Restrict string: $Restrict"
 
     #Certutil execution. Exports data out to temporary CSV.
     certutil -restrict $Restrict -view csv > $TempPath\$Item.TempCSV.csv #-out "RequesterName,CommonName,Certificate Expiration Date"
@@ -90,6 +91,7 @@ Foreach ($Item in $Templates)
     Remove-Item $TempPath\$Item.TempCSV.csv
 
     #$CertData
+
 }
 
 #Report construction.
@@ -108,13 +110,29 @@ Upcoming Expiring PKI Certificates
 
 $MailBody = $CertData | ConvertTo-Html -Head $Header -PreContent "PKI Certificates Set to Expire Within $ExpireWindow Days" | Out-String
 
-#Write event to local event log.
-#Create event log source, if it does not already exist.
-if ([System.Diagnostics.EventLog]::SourceExists("CertReport") -eq $false) 
-{
-    [System.Diagnostics.EventLog]::CreateEventSource("CertReport","Application")
+$LogMsg = 
+@"
+Certificate expiration report data
+Expiration Window: $ExpireWindow
+Tempales Evaluated: $Templates
+
+Results
+$CertData
+
+End of run
+"@
+
+#Write to local application log
+If ($EVLog -eq $true){
+    #Write event to local event log.
+    #Create event log source, if it does not already exist.
+    if ([System.Diagnostics.EventLog]::SourceExists("CertReport") -eq $false) 
+    {
+        [System.Diagnostics.EventLog]::CreateEventSource("CertReport","Application")
+    }
+    Write-EventLog -LogName "Application" -EntryType Information -EventId 530 -Source CertReport -Message $LogMsg
+
 }
-#Write-EventLog -LogName "Application" -EntryType Information -EventId 530 -Source CertReport -Message $LogMSG 
 
 #Send out email report.            
 If ($email -eq $true)
@@ -125,6 +143,6 @@ If ($email -eq $true)
     }
     catch
     {
-        Write-Host "Error sending email" $error[0]
+        #Write-Output "Error sending email" $error[0]
     }
 }
